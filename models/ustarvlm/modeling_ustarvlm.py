@@ -1,15 +1,15 @@
 
-from config import VLMConfig
+from models.ustarvlm.config import uStarVLMConfig
 from transformers import PreTrainedModel, AutoTokenizer, AutoModelForCausalLM
 from transformers import AutoProcessor, AutoModel
 import torch
 import torch.nn as nn
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-
+##简单的拼接做法
 class uStarVLM(PreTrainedModel):
     # 这里需要注册一下config_class类，不然在用AutoModelForCausalLM加载训练好的VLM时会报错
-    config_class = VLMConfig
+    config_class = uStarVLMConfig
     def __init__(self, config):
         super(uStarVLM, self).__init__(config)
 
@@ -28,7 +28,7 @@ class uStarVLM(PreTrainedModel):
                 param.requires_grad = False
         if self.config.freeze_llm:
             for param in self.llm.parameters():
-                param.requires_grad = False
+                param.requires_grad = True
 
     def forward(self, input_ids, labels, pixel_values, attention_mask=None):
 
