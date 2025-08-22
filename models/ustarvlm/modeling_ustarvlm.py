@@ -18,17 +18,24 @@ class uStarVLM(PreTrainedModel):
         self.processor = AutoProcessor.from_pretrained(self.config.vision_model_path)
         self.llm = AutoModelForCausalLM.from_pretrained(self.config.llm_path)
         self.tokenizer = AutoTokenizer.from_pretrained(self.config.llm_path)
+        # self.project_layer = nn.Sequential(
+        #     nn.Linear(self.vision_model.config.vision_config.hidden_size * 4, self.llm.config.hidden_size),
+        #     nn.SiLU(),
+        #     nn.Linear(self.llm.config.hidden_size, self.llm.config.hidden_size)
+        # )
         self.project_layer = nn.Sequential(
-            nn.Linear(self.vision_model.config.vision_config.hidden_size * 4, self.llm.config.hidden_size),
-            nn.SiLU(),
-            nn.Linear(self.llm.config.hidden_size, self.llm.config.hidden_size)
-        )
+                nn.LayerNorm(self.vision_model.config.vision_config.hidden_size * 4),
+                nn.Linear(self.vision_model.config.vision_config.hidden_size * 4, self.llm.config.hidden_size),
+                nn.SiLU(),
+                nn.Linear(self.llm.config.hidden_size, self.llm.config.hidden_size),
+                nn.LayerNorm(self.llm.config.hidden_size)
+            )
         if self.config.freeze_vision_model:
             for param in self.vision_model.parameters():
                 param.requires_grad = False
         if self.config.freeze_llm:
             for param in self.llm.parameters():
-                param.requires_grad = True
+                param.requires_grad = False
 
     def forward(self, input_ids, labels, pixel_values, attention_mask=None):
 
@@ -81,12 +88,38 @@ class uStarVLM(PreTrainedModel):
         )
         return outputs
 
-    def merge_image_features_to_text_embeddings(self, input_ids, text_embeddings, image_features):
+    # def merge_image_features_to_text_embeddings(self, input_ids, text_embeddings, image_features):
 
-        batch, patch, hidde_dim = image_features.shape
-        # 找出input_ids中被<image_pad>占位的索引
-        batch_indices, image_indices = torch.where(input_ids == self.tokenizer('<|image_pad|>')['input_ids'][0])
-        # 将image_features替换原来的<image_pad>的embedding
-        text_embeddings[batch_indices, image_indices] = image_features.view(-1, hidde_dim)
+    #     batch, patch, hidde_dim = image_features.shape
+    #     # 找出input_ids中被<image_pad>占位的索引
+    #     batch_indices, image_indices = torch.where(input_ids == self.tokenizer('<|image_pad|>')['input_ids'][0])
+    #     # 将image_features替换原来的<image_pad>的embedding
+    #     text_embeddings[batch_indices, image_indices] = image_features.view(-1, hidde_dim)
+
+    #     return text_embeddings
+    def merge_image_features_to_text_embeddings(self, input_ids, text_embeddings, image_features):
+        """
+        input_ids: [B, T]
+        text_embeddings: [B, T, H]
+        image_features: [B, P, H]  # P = 压缩后的视觉 token 数
+        """
+        B, P, H = image_features.shape
+        image_pad_id = self.tokenizer.convert_tokens_to_ids("<|image_pad|>")
+
+        for b in range(B):
+            pos = (input_ids[b] == image_pad_id).nonzero(as_tuple=False).squeeze(-1)
+            if pos.numel() < P:
+                # 视觉 token 比占位少：仅替换可替换部分，剩余 pad 不动
+                n = pos.numel()
+                if n > 0:
+                    text_embeddings[b, pos[:n]] = image_features[b, :n]
+            else:
+                # 视觉 token <= 占位：等长或截断到 P
+                text_embeddings[b, pos[:P]] = image_features[b, :P]
+
+            # 可选：如果 pos.numel() != P，打印一次警告，方便你排查 image_pad_num 配置
+            # if pos.numel() != P:
+            #     print(f"[warn] sample {b}: pads={pos.numel()} != visual_tokens={P}")
 
         return text_embeddings
+

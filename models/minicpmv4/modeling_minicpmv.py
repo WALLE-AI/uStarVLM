@@ -11,8 +11,8 @@ from transformers import AutoProcessor, TextIteratorStreamer
 
 from configuration_minicpm import MiniCPMVConfig
 from transformers import LlamaForCausalLM, LlamaPreTrainedModel
-from .modeling_navit_siglip import SiglipVisionTransformer
-from .resampler import Resampler
+from modeling_navit_siglip import SiglipVisionTransformer
+from resampler import Resampler
 
 
 
